@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Content Calendar Creator</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for Inter font and general body */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* Align to top for better content flow */
+            min-height: 100vh;
+            overflow-y: auto; /* Allow scrolling if content overflows */
+        }
+
+        /* Content item styling */
+        .content-item {
+            cursor: grab;
+            transition: transform 0.1s ease-in-out;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); /* Subtle shadow */
+        }
+
+        .content-item:active {
+            cursor: grabbing;
+            transform: scale(1.02); /* Slightly enlarge when dragging */
+        }
+
+        /* Calendar cell styling */
+        .calendar-cell {
+            min-height: 120px; /* Ensure enough space for content */
+            position: relative;
+            overflow: hidden;
+            background-color: #ffffff; /* White background for cells */
+            border: 1px solid #e5e7eb; /* Light gray border */
+            border-radius: 0.5rem; /* Rounded corners for cells */
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 0.5rem;
+            transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+        }
+
+        /* Drag over effect for calendar cells */
+        .calendar-cell.drag-over {
+            background-color: #e0f2fe; /* Light blue background */
+            border-color: #38b2ac; /* Teal border */
+        }
+
+        /* Hide scrollbar for content list but allow scrolling */
+        .content-list-container {
+            max-height: calc(100vh - 200px); /* Adjust based on header/footer */
+            overflow-y: auto;
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+
+        .content-list-container::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
+        }
+
+        /* Modal overlay */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6); /* Darker overlay */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        /* Modal content */
+        .modal-content {
+            background-color: #ffffff;
+            padding: 2rem;
+            border-radius: 0.75rem; /* More rounded corners */
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); /* Stronger shadow */
+            max-width: 500px;
+            width: 90%;
+            position: relative;
+        }
+
+        /* Print styles */
+        @media print {
+            body {
+                background-color: #fff;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .calendar-grid {
+                grid-template-columns: repeat(7, 1fr); /* Ensure 7 columns for print */
+                page-break-inside: avoid; /* Avoid breaking calendar grid across pages */
+            }
+            .calendar-cell {
+                border: 1px solid #ccc;
+                min-height: 100px;
+                padding: 0.25rem;
+            }
+            .content-item {
+                font-size: 0.75rem;
+                padding: 0.25rem;
+                margin: 0.1rem;
+            }
+            h1, h2, h3 {
+                color: #000;
+            }
+            /* Adjust margins and padding for print */
+            .p-8 { padding: 1rem !important; }
+            .mx-auto { margin-left: 0 !important; margin-right: 0 !important; }
+            .container { max-width: none !important; width: auto !important; }
+        }
+    </style>
+</head>
+<body class="p-4">
+    <div class="container mx-auto bg-gray-50 p-8 rounded-xl shadow-2xl flex flex-col lg:flex-row gap-8 min-h-[90vh]">
+        <!-- Left Sidebar: Content Items & Filters -->
+        <div class="w-full lg:w-1/4 no-print bg-white p-6 rounded-lg shadow-lg flex flex-col">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-3">Content Hub</h2>
+
+            <!-- Add Content Button -->
+            <button id="addContentBtn" class="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-6 py-3 rounded-lg shadow-md hover:from-blue-600 hover:to-indigo-700 transition duration-300 ease-in-out mb-6 transform hover:scale-105">
+                + Add New Content
+            </button>
+
+            <!-- Filters -->
+            <div class="mb-6">
+                <h3 class="text-lg font-semibold text-gray-700 mb-3">Filter by Platform</h3>
+                <div class="flex flex-wrap gap-2" id="platformFilters">
+                    <!-- Filters will be dynamically generated here -->
+                </div>
+            </div>
+
+            <!-- Draggable Content List -->
+            <div class="flex-grow">
+                <h3 class="text-lg font-semibold text-gray-700 mb-3">Unscheduled Content</h3>
+                <div id="contentList" class="content-list-container space-y-3 p-2 border border-gray-200 rounded-md bg-gray-50">
+                    <!-- Content items will be dynamically loaded here -->
+                    <p id="noContentMessage" class="text-gray-500 text-sm text-center py-4">No unscheduled content. Add some!</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Main Area: Calendar -->
+        <div class="w-full lg:w-3/4 bg-white p-6 rounded-lg shadow-lg flex flex-col">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-extrabold text-gray-900" id="currentMonthYear"></h2>
+                <div class="flex space-x-3 no-print">
+                    <button id="prevMonthBtn" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-300 transition duration-200 ease-in-out transform hover:scale-105">
+                        &lt; Prev
+                    </button>
+                    <button id="nextMonthBtn" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-300 transition duration-200 ease-in-out transform hover:scale-105">
+                        Next &gt;
+                    </button>
+                </div>
+            </div>
+
+            <!-- Calendar Grid -->
+            <div class="grid grid-cols-7 gap-2 text-center font-semibold text-gray-600 mb-4">
+                <div>Sun</div>
+                <div>Mon</div>
+                <div>Tue</div>
+                <div>Wed</div>
+                <div>Thu</div>
+                <div>Fri</div>
+                <div>Sat</div>
+            </div>
+            <div id="calendarGrid" class="grid grid-cols-7 gap-2 flex-grow">
+                <!-- Calendar cells will be dynamically loaded here -->
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="mt-8 flex justify-end space-x-4 no-print">
+                <button id="saveJsonBtn" class="bg-green-500 text-white px-6 py-3 rounded-lg shadow-md hover:bg-green-600 transition duration-300 ease-in-out transform hover:scale-105">
+                    💾 Save to JSON
+                </button>
+                <button id="printBtn" class="bg-purple-500 text-white px-6 py-3 rounded-lg shadow-md hover:bg-purple-600 transition duration-300 ease-in-out transform hover:scale-105">
+                    🖨️ Print Calendar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Content Modal -->
+    <div id="contentModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h3 id="modalTitle" class="text-2xl font-bold text-gray-800 mb-6">Add New Content</h3>
+            <form id="contentForm" class="space-y-4">
+                <div>
+                    <label for="contentTitle" class="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                    <input type="text" id="contentTitle" name="title" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500" required>
+                </div>
+                <div>
+                    <label for="contentType" class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                    <select id="contentType" name="type" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500" required>
+                        <option value="blog">Blog Post</option>
+                        <option value="video">Video</option>
+                        <option value="social">Social Media Post</option>
+                        <option value="email">Email Campaign</option>
+                        <option value="webinar">Webinar</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="contentPlatform" class="block text-sm font-medium text-gray-700 mb-1">Platform</label>
+                    <input type="text" id="contentPlatform" name="platform" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500" placeholder="e.g., YouTube, Instagram, Website" required>
+                </div>
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" id="cancelModalBtn" class="bg-gray-300 text-gray-800 px-5 py-2 rounded-lg shadow-sm hover:bg-gray-400 transition duration-200">Cancel</button>
+                    <button type="submit" class="bg-blue-600 text-white px-5 py-2 rounded-lg shadow-md hover:bg-blue-700 transition duration-300">Save Content</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Content data storage
+        let contentData = JSON.parse(localStorage.getItem('contentCalendarData')) || [];
+
+        // Current date for calendar view
+        let currentDate = new Date();
+        let editingContentId = null; // To track if we are editing an existing item
+
+        // DOM Elements
+        const currentMonthYearEl = document.getElementById('currentMonthYear');
+        const calendarGridEl = document.getElementById('calendarGrid');
+        const contentListEl = document.getElementById('contentList');
+        const noContentMessageEl = document.getElementById('noContentMessage');
+        const platformFiltersEl = document.getElementById('platformFilters');
+
+        const addContentBtn = document.getElementById('addContentBtn');
+        const saveJsonBtn = document.getElementById('saveJsonBtn');
+        const printBtn = document.getElementById('printBtn');
+        const prevMonthBtn = document.getElementById('prevMonthBtn');
+        const nextMonthBtn = document.getElementById('nextMonthBtn');
+
+        const contentModal = document.getElementById('contentModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const contentForm = document.getElementById('contentForm');
+        const cancelModalBtn = document.getElementById('cancelModalBtn');
+
+        // --- Utility Functions ---
+
+        /**
+         * Generates a unique ID for content items.
+         * @returns {string} A unique ID.
+         */
+        function generateUniqueId() {
+            return 'content-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+        }
+
+        /**
+         * Saves content data to localStorage.
+         */
+        function saveContentData() {
+            localStorage.setItem('contentCalendarData', JSON.stringify(contentData));
+        }
+
+        /**
+         * Formats a Date object to YYYY-MM-DD string.
+         * @param {Date} date - The date object.
+         * @returns {string} Formatted date string.
+         */
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        /**
+         * Parses a YYYY-MM-DD string to a Date object.
+         * @param {string} dateString - The date string.
+         * @returns {Date} Parsed Date object.
+         */
+        function parseDate(dateString) {
+            const [year, month, day] = dateString.split('-').map(Number);
+            return new Date(year, month - 1, day);
+        }
+
+        // --- Render Functions ---
+
+        /**
+         * Renders the calendar grid for the current month.
+         */
+        function renderCalendar() {
+            calendarGridEl.innerHTML = ''; // Clear previous calendar
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+
+            // Set current month and year display
+            currentMonthYearEl.textContent = new Date(year, month).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+            // Get first day of the month (0=Sunday, 1=Monday, etc.)
+            const firstDayOfMonth = new Date(year, month, 1).getDay();
+            // Get number of days in the current month
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            // Add empty cells for days before the 1st of the month
+            for (let i = 0; i < firstDayOfMonth; i++) {
+                const emptyCell = document.createElement('div');
+                emptyCell.classList.add('calendar-cell', 'bg-gray-100', 'text-gray-400', 'opacity-75');
+                calendarGridEl.appendChild(emptyCell);
+            }
+
+            // Add cells for each day of the month
+            for (let day = 1; day <= daysInMonth; day++) {
+                const date = new Date(year, month, day);
+                const dateString = formatDate(date);
+
+                const cell = document.createElement('div');
+                cell.classList.add('calendar-cell', 'p-2', 'rounded-lg', 'shadow-sm', 'relative', 'flex', 'flex-col', 'items-start');
+                cell.dataset.date = dateString; // Store date string for drag and drop
+
+                const dayNumber = document.createElement('div');
+                dayNumber.classList.add('font-bold', 'text-lg', 'mb-1', 'text-gray-800');
+                dayNumber.textContent = day;
+                cell.appendChild(dayNumber);
+
+                // Add content items to the cell if their date matches
+                const filteredPlatforms = Array.from(document.querySelectorAll('#platformFilters input:checked')).map(input => input.value);
+
+                contentData.filter(item => item.date === dateString)
+                           .filter(item => filteredPlatforms.length === 0 || filteredPlatforms.includes(item.platform))
+                           .forEach(item => {
+                                const itemEl = createContentItemElement(item);
+                                cell.appendChild(itemEl);
+                           });
+
+                // Add drag and drop event listeners to the cell
+                cell.addEventListener('dragover', handleDragOver);
+                cell.addEventListener('dragleave', handleDragLeave);
+                cell.addEventListener('drop', handleDrop);
+
+                calendarGridEl.appendChild(cell);
+            }
+
+            renderUnscheduledContent(); // Re-render unscheduled content after calendar update
+        }
+
+        /**
+         * Creates a draggable content item HTML element.
+         * @param {Object} item - The content item object.
+         * @returns {HTMLElement} The created div element.
+         */
+        function createContentItemElement(item) {
+            const itemEl = document.createElement('div');
+            itemEl.id = item.id;
+            itemEl.classList.add('content-item', 'bg-blue-100', 'text-blue-800', 'px-2', 'py-1', 'rounded-md', 'text-sm', 'mb-1', 'w-full', 'truncate', 'flex', 'justify-between', 'items-center', 'hover:bg-blue-200');
+            itemEl.setAttribute('draggable', 'true');
+            itemEl.dataset.id = item.id; // Store ID for drag operations
+
+            // Add icon based on type
+            let icon = '';
+            switch (item.type) {
+                case 'blog': icon = '📝'; break;
+                case 'video': icon = '🎥'; break;
+                case 'social': icon = '📱'; break;
+                case 'email': icon = '📧'; break;
+                case 'webinar': icon = '💻'; break;
+                default: icon = '📄';
+            }
+
+            itemEl.innerHTML = `
+                <span class="flex items-center gap-1">
+                    ${icon} ${item.title}
+                </span>
+                <span class="text-xs text-blue-600 ml-2">${item.platform}</span>
+            `;
+
+            // Add click listener for editing
+            itemEl.addEventListener('click', (e) => {
+                // Prevent event from bubbling up to parent if it's a drag operation
+                if (e.detail === 0) return; // This is a common hack to detect programmatically triggered clicks vs user clicks after drag
+                openContentModal(item.id);
+            });
+
+            // Add dragstart listener
+            itemEl.addEventListener('dragstart', handleDragStart);
+
+            return itemEl;
+        }
+
+        /**
+         * Renders unscheduled content items in the sidebar.
+         */
+        function renderUnscheduledContent() {
+            contentListEl.innerHTML = ''; // Clear previous list
+            const unscheduledItems = contentData.filter(item => !item.date);
+
+            if (unscheduledItems.length === 0) {
+                noContentMessageEl.classList.remove('hidden');
+            } else {
+                noContentMessageEl.classList.add('hidden');
+                unscheduledItems.forEach(item => {
+                    const itemEl = createContentItemElement(item);
+                    contentListEl.appendChild(itemEl);
+                });
+            }
+        }
+
+        /**
+         * Renders the platform filter checkboxes.
+         */
+        function renderPlatformFilters() {
+            platformFiltersEl.innerHTML = '';
+            const allPlatforms = [...new Set(contentData.map(item => item.platform))].sort();
+
+            if (allPlatforms.length === 0) {
+                platformFiltersEl.innerHTML = '<p class="text-gray-500 text-sm">No platforms added yet.</p>';
+                return;
+            }
+
+            allPlatforms.forEach(platform => {
+                const label = document.createElement('label');
+                label.classList.add('inline-flex', 'items-center', 'bg-gray-100', 'px-3', 'py-1.5', 'rounded-full', 'text-sm', 'text-gray-700', 'cursor-pointer', 'hover:bg-gray-200', 'transition', 'duration-150');
+                label.innerHTML = `
+                    <input type="checkbox" value="${platform}" class="form-checkbox h-4 w-4 text-blue-600 rounded focus:ring-blue-500 mr-2">
+                    ${platform}
+                `;
+                const checkbox = label.querySelector('input');
+                checkbox.addEventListener('change', renderCalendar); // Re-render calendar on filter change
+                platformFiltersEl.appendChild(label);
+            });
+        }
+
+        // --- Drag and Drop Handlers ---
+
+        /**
+         * Handles the dragstart event for content items.
+         * @param {Event} e - The dragstart event.
+         */
+        function handleDragStart(e) {
+            e.dataTransfer.setData('text/plain', e.target.dataset.id);
+            e.dataTransfer.effectAllowed = 'move';
+            e.target.classList.add('opacity-50'); // Visual feedback for dragging
+        }
+
+        /**
+         * Handles the dragover event for calendar cells.
+         * @param {Event} e - The dragover event.
+         */
+        function handleDragOver(e) {
+            e.preventDefault(); // Necessary to allow drop
+            e.dataTransfer.dropEffect = 'move';
+            e.currentTarget.classList.add('drag-over'); // Highlight cell
+        }
+
+        /**
+         * Handles the dragleave event for calendar cells.
+         * @param {Event} e - The dragleave event.
+         */
+        function handleDragLeave(e) {
+            e.currentTarget.classList.remove('drag-over'); // Remove highlight
+        }
+
+        /**
+         * Handles the drop event for calendar cells.
+         * @param {Event} e - The drop event.
+         */
+        function handleDrop(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drag-over'); // Remove highlight
+
+            const itemId = e.dataTransfer.getData('text/plain');
+            const targetDate = e.currentTarget.dataset.date; // Get date from cell
+
+            const draggedItemEl = document.getElementById(itemId);
+            if (draggedItemEl) {
+                draggedItemEl.classList.remove('opacity-50'); // Remove drag feedback
+            }
+
+            const itemIndex = contentData.findIndex(item => item.id === itemId);
+            if (itemIndex > -1) {
+                contentData[itemIndex].date = targetDate; // Update item's date
+                saveContentData();
+                renderCalendar(); // Re-render calendar to show updated item
+            }
+        }
+
+        // --- Modal Functions ---
+
+        /**
+         * Opens the content modal for adding or editing.
+         * @param {string|null} [id=null] - The ID of the content item to edit, or null for new.
+         */
+        function openContentModal(id = null) {
+            contentModal.classList.remove('hidden');
+            contentForm.reset(); // Clear form fields
+
+            if (id) {
+                editingContentId = id;
+                modalTitle.textContent = 'Edit Content';
+                const itemToEdit = contentData.find(item => item.id === id);
+                if (itemToEdit) {
+                    document.getElementById('contentTitle').value = itemToEdit.title;
+                    document.getElementById('contentType').value = itemToEdit.type;
+                    document.getElementById('contentPlatform').value = itemToEdit.platform;
+                }
+            } else {
+                editingContentId = null;
+                modalTitle.textContent = 'Add New Content';
+            }
+        }
+
+        /**
+         * Closes the content modal.
+         */
+        function closeContentModal() {
+            contentModal.classList.add('hidden');
+            editingContentId = null;
+        }
+
+        /**
+         * Handles form submission for adding/editing content.
+         * @param {Event} e - The form submit event.
+         */
+        function handleContentFormSubmit(e) {
+            e.preventDefault();
+            const formData = new FormData(contentForm);
+            const newContent = {
+                title: formData.get('title'),
+                type: formData.get('type'),
+                platform: formData.get('platform'),
+                date: null // Initially unscheduled
+            };
+
+            if (editingContentId) {
+                // Update existing item
+                const itemIndex = contentData.findIndex(item => item.id === editingContentId);
+                if (itemIndex > -1) {
+                    contentData[itemIndex] = { ...contentData[itemIndex], ...newContent };
+                }
+            } else {
+                // Add new item
+                newContent.id = generateUniqueId();
+                contentData.push(newContent);
+            }
+
+            saveContentData();
+            closeContentModal();
+            renderCalendar(); // Re-render calendar to reflect changes
+            renderPlatformFilters(); // Update filters in case new platform was added
+        }
+
+        // --- Action Button Handlers ---
+
+        /**
+         * Navigates the calendar to the previous month.
+         */
+        function goToPrevMonth() {
+            currentDate.setMonth(currentDate.getMonth() - 1);
+            renderCalendar();
+        }
+
+        /**
+         * Navigates the calendar to the next month.
+         */
+        function goToNextMonth() {
+            currentDate.setMonth(currentDate.getMonth() + 1);
+            renderCalendar();
+        }
+
+        /**
+         * Saves content data to a JSON file.
+         */
+        function saveToJson() {
+            const jsonString = JSON.stringify(contentData, null, 2); // Pretty print JSON
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'content_calendar.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        /**
+         * Prints the calendar view.
+         */
+        function printCalendar() {
+            window.print();
+        }
+
+        // --- Event Listeners ---
+        document.addEventListener('DOMContentLoaded', () => {
+            renderCalendar();
+            renderUnscheduledContent();
+            renderPlatformFilters();
+        });
+
+        addContentBtn.addEventListener('click', () => openContentModal());
+        cancelModalBtn.addEventListener('click', closeContentModal);
+        contentModal.addEventListener('click', (e) => {
+            // Close modal if clicking outside the content area
+            if (e.target === contentModal) {
+                closeContentModal();
+            }
+        });
+        contentForm.addEventListener('submit', handleContentFormSubmit);
+
+        prevMonthBtn.addEventListener('click', goToPrevMonth);
+        nextMonthBtn.addEventListener('click', goToNextMonth);
+        saveJsonBtn.addEventListener('click', saveToJson);
+        printBtn.addEventListener('click', printCalendar);
+
+        // Allow dropping content from unscheduled list to calendar
+        contentListEl.addEventListener('dragover', handleDragOver);
+        contentListEl.addEventListener('dragleave', handleDragLeave);
+        contentListEl.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drag-over');
+
+            const itemId = e.dataTransfer.getData('text/plain');
+            const itemIndex = contentData.findIndex(item => item.id === itemId);
+            if (itemIndex > -1) {
+                contentData[itemIndex].date = null; // Unschedule the item
+                saveContentData();
+                renderCalendar();
+            }
+        });
+
+    </script>
+</body>
+</html>
